@@ -1,6 +1,7 @@
 torch
 torchvision
 opencv-python
+matplotlib==3.7.0
 pyyaml
 json_tricks
 yacs
