@@ -101,7 +101,7 @@ image_out=gr.components.Image(label="Auto generation",type="pil",brush_radius=15
 title='''
 # Semantic-SAM: Segment and Recognize Anything at Any Granularity
 
-# [[Read our arXiv Paper](https://arxiv.org/pdf/2307.04767.pdf)\] &nbsp; \[[Github page](https://github.com/UX-Decoder/Semantic-SAM)\] 
+# [[Read our arXiv Paper](https://arxiv.org/pdf/2307.04767.pdf)\] &nbsp; \[[Github page](https://github.com/UX-Decoder/Semantic-SAM)\]
 
 # Auto generation demo.
 '''
@@ -166,4 +166,3 @@ with demo:
 
 
 demo.queue().launch(share=True,server_port=6081)
-
