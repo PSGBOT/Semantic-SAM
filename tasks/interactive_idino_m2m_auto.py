@@ -41,7 +41,7 @@ def interactive_infer_image(model, image,level,all_classes,all_parts, thresh,tex
     show_anns(outputs)
     fig.canvas.draw()
     im=Image.frombytes('RGB', fig.canvas.get_width_height(), fig.canvas.tostring_rgb())
-    return im
+    return im, outputs
 
 
 def remove_small_regions(
@@ -72,8 +72,9 @@ def remove_small_regions(
 
 def show_anns(anns):
     if len(anns) == 0:
+        print("No instances to display")
         return
-    sorted_anns = sorted(anns, key=(lambda x: x['area']), reverse=True)
+    sorted_anns = sorted(anns, key=(lambda x: x['area']), reverse=False)
     ax = plt.gca()
     ax.set_autoscale_on(False)
     polygons = []
@@ -84,4 +85,65 @@ def show_anns(anns):
         color_mask = np.random.random((1, 3)).tolist()[0]
         for i in range(3):
             img[:,:,i] = color_mask[i]
-        ax.imshow(np.dstack((img, m*0.35)))
+        plt.imshow(np.dstack((img, m*0.35)))
+
+# a function to visualize the masks
+def visualize_masks(anns, image_ori=None, figsize=(15, 10)):
+    """
+    Visualize segmentation masks one by one in black and white form.
+
+    Args:
+        anns: List of annotation dictionaries containing segmentation masks
+        image_ori: Original image as a numpy array (optional)
+        figsize: Size of the figure (width, height) in inches
+
+    Returns:
+        None - displays the masks directly
+
+    Usage in Jupyter:
+        visualize_masks(outputs)
+    """
+    if len(anns) == 0:
+        print("No instances to display")
+        return
+
+    # Sort by area for better visualization
+    sorted_anns = sorted(anns, key=(lambda x: x['area']), reverse=True)
+
+    # Calculate grid dimensions
+    n_masks = len(sorted_anns)
+    n_cols = min(4, n_masks)
+    n_rows = (n_masks + n_cols - 1) // n_cols
+
+    # Create figure
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize)
+    if n_rows == 1 and n_cols == 1:
+        axes = np.array([axes])
+    axes = axes.flatten()
+
+    # Display each mask
+    for i, ann in enumerate(sorted_anns):
+        if i >= len(axes):
+            break
+
+        m = ann['segmentation']
+
+        # Display mask in black and white
+        axes[i].imshow(m, cmap='gray')
+
+        # Add area information
+        area_text = f"Area: {ann['area']:.0f}"
+        if 'predicted_iou' in ann:
+            area_text += f"\nIoU: {ann['predicted_iou']:.2f}"
+        if 'stability_score' in ann:
+            area_text += f"\nStability: {ann['stability_score']:.2f}"
+
+        axes[i].set_title(f"Mask {i+1}\n{area_text}")
+        axes[i].axis('off')
+
+    # Hide unused subplots
+    for i in range(n_masks, len(axes)):
+        axes[i].axis('off')
+
+    plt.tight_layout()
+    plt.show()
