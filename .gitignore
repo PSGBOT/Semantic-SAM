@@ -9,4 +9,4 @@ __pycache__
 */.ipynb_checkpoints
 Mask2Former
 weights
-./output/*
+output
