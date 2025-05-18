@@ -3,6 +3,7 @@ import numpy as np
 import argparse
 import os
 import glob
+import matplotlib.pyplot as plt
 from PIL import Image
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
@@ -171,7 +172,7 @@ def process_single_image(args, model, image_path):
         # Visualize masks if requested
         if args.visualize:
             vis_path = os.path.join(image_output_dir, "visualization.png") if args.save_masks else None
-            save_mask_visualization(masks, vis_path)
+            visualize_masks(masks, save_path=vis_path)
 
         return {
             "image_path": image_path,
@@ -185,61 +186,72 @@ def process_single_image(args, model, image_path):
         return {"image_path": image_path, "success": False, "masks": []}
 
 
-def save_mask_visualization(masks, save_path=None):
+def visualize_masks(anns, image_ori=None, figsize=(15, 10), save_path=None):
     """
-    Create and save a visualization of masks using PIL instead of matplotlib.
-    
+    Visualize segmentation masks one by one in black and white form.
+
     Args:
-        masks: List of annotation dictionaries containing segmentation masks
-        save_path: Path to save the visualization
+        anns: List of annotation dictionaries containing segmentation masks
+        image_ori: Original image as a numpy array (optional)
+        figsize: Size of the figure (width, height) in inches
+        save_path: Path to save the visualization (optional)
+
+    Returns:
+        None - displays the masks directly
     """
-    if len(masks) == 0:
+    if len(anns) == 0:
         print("No instances to display")
         return
-    
+
     # Sort by area for better visualization
-    sorted_masks = sorted(masks, key=(lambda x: x['area']), reverse=True)
-    
+    sorted_anns = sorted(anns, key=(lambda x: x['area']), reverse=True)
+
     # Calculate grid dimensions
-    n_masks = len(sorted_masks)
+    n_masks = len(sorted_anns)
     n_cols = min(4, n_masks)
     n_rows = (n_masks + n_cols - 1) // n_cols
-    
-    # Define cell size and padding
-    cell_width, cell_height = 200, 200
-    padding = 10
-    
-    # Create a blank image for the grid
-    grid_width = n_cols * (cell_width + padding) + padding
-    grid_height = n_rows * (cell_height + padding) + padding
-    grid_img = Image.new('RGB', (grid_width, grid_height), color=(255, 255, 255))
-    
-    # Add each mask to the grid
-    for i, mask in enumerate(sorted_masks):
-        if i >= n_rows * n_cols:
+
+    # Create figure
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize)
+    if n_rows == 1 and n_cols == 1:
+        axes = np.array([axes])
+    axes = axes.flatten()
+
+    # Display each mask
+    for i, ann in enumerate(sorted_anns):
+        if i >= len(axes):
             break
-            
-        # Calculate position in grid
-        row = i // n_cols
-        col = i % n_cols
-        x = col * (cell_width + padding) + padding
-        y = row * (cell_height + padding) + padding
-        
-        # Convert boolean mask to image
-        mask_array = mask['segmentation'].astype(np.uint8) * 255
-        mask_img = Image.fromarray(mask_array)
-        
-        # Resize mask to fit cell
-        mask_img = mask_img.resize((cell_width, cell_height), Image.NEAREST)
-        
-        # Paste mask into grid
-        grid_img.paste(mask_img, (x, y))
-        
-    # Save the visualization
+
+        m = ann['segmentation']
+
+        # Display mask in black and white
+        axes[i].imshow(m, cmap='gray')
+
+        # Add area information
+        area_text = f"Area: {ann['area']:.0f}"
+        if 'predicted_iou' in ann:
+            area_text += f"\nIoU: {ann['predicted_iou']:.2f}"
+        if 'stability_score' in ann:
+            area_text += f"\nStability: {ann['stability_score']:.2f}"
+
+        axes[i].set_title(f"Mask {i+1}\n{area_text}")
+        axes[i].axis('off')
+
+    # Hide unused subplots
+    for i in range(n_masks, len(axes)):
+        axes[i].axis('off')
+
+    plt.tight_layout()
+
     if save_path:
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        grid_img.save(save_path)
+        plt.savefig(save_path)
         print(f"Visualization saved to {save_path}")
+
+    # Only show if not in batch mode
+    if not plt.isinteractive():
+        plt.close(fig)
+    else:
+        plt.show()
 
 
 def save_masks(masks, output_dir):
@@ -320,23 +332,17 @@ def main():
         # Batch mode
         print(f"Processing {len(image_paths)} images in batch mode...")
 
-        # Process images sequentially in batch mode to avoid threading issues
-        if args.workers <= 1:
-            for image_path in tqdm(image_paths):
-                result = process_single_image(args, model, image_path)
+        # Use ThreadPoolExecutor for loading images in parallel
+        # Note: The actual inference still runs sequentially on the GPU
+        with ThreadPoolExecutor(max_workers=args.workers) as executor:
+            futures = []
+            for image_path in image_paths:
+                futures.append(executor.submit(process_single_image, args, model, image_path))
+
+            # Process results as they complete
+            for future in tqdm(futures, total=len(image_paths)):
+                result = future.result()
                 results.append(result)
-        else:
-            # Use ThreadPoolExecutor for loading images in parallel
-            # Note: The actual inference still runs sequentially on the GPU
-            with ThreadPoolExecutor(max_workers=args.workers) as executor:
-                futures = []
-                for image_path in image_paths:
-                    futures.append(executor.submit(process_single_image, args, model, image_path))
-                
-                # Process results as they complete
-                for future in tqdm(futures, total=len(image_paths)):
-                    result = future.result()
-                    results.append(result)
 
     # Generate summary if requested
     if args.summary and len(results) > 0:
@@ -376,7 +382,7 @@ Usage examples:
 python segment-pipeline.py --input ./examples/truck.jpg --level 2 --visualize --save_masks --output_dir ./output
 
 # Process all images in a directory
-python segment-pipeline.py --input ./examples --batch --level 2 --save_masks --output_dir ./output --workers 1 --summary
+python ./psg_data/segment-pipeline.py --input ./input --batch --summary --level 2 --save_masks --output_dir ./output --workers 2
 
 Output format for each mask:
 {

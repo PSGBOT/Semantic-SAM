@@ -18,7 +18,7 @@ import io
 from .automatic_mask_generator import SemanticSamAutomaticMaskGenerator
 metadata = MetadataCatalog.get('coco_2017_train_panoptic')
 
-def interactive_infer_image(model, image,level,all_classes,all_parts, thresh,text_size,hole_scale,island_scale,semantic, refimg=None, reftxt=None, audio_pth=None, video_pth=None):
+def interactive_infer_image(model, image,level,all_classes,all_parts, thresh,text_size,hole_scale,island_scale,semantic, refimg=None, reftxt=None, audio_pth=None, video_pth=None, visualize=None):
     t = []
     t.append(transforms.Resize(int(text_size), interpolation=Image.BICUBIC))
     transform1 = transforms.Compose(t)
@@ -35,12 +35,14 @@ def interactive_infer_image(model, image,level,all_classes,all_parts, thresh,tex
         )
 
     outputs = mask_generator.generate(images)
-
-    fig=plt.figure(figsize=(10, 10))
-    plt.imshow(image_ori)
-    show_anns(outputs)
-    fig.canvas.draw()
-    im=Image.frombytes('RGB', fig.canvas.get_width_height(), fig.canvas.tostring_rgb())
+    if visualize:
+        fig=plt.figure(figsize=(10, 10))
+        plt.imshow(image_ori)
+        show_anns(outputs)
+        fig.canvas.draw()
+        im=Image.frombytes('RGB', fig.canvas.get_width_height(), fig.canvas.tostring_rgb())
+    else:
+        im=image
     return im, outputs
 
 
