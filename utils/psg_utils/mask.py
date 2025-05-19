@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 import os
+import torch
 
 def visualize_masks(anns, image_ori=None, figsize=(15, 10), save_path=None):
     """
@@ -89,3 +90,54 @@ def save_masks(masks, output_dir):
         mask_pil = Image.fromarray(mask_img)
         mask_path = os.path.join(output_dir, f"mask_{i+1}.png")
         mask_pil.save(mask_path)
+
+@torch.no_grad()
+def iou(mask1, mask2):
+    intersection = (mask1 * mask2).sum()
+    if intersection == 0:
+        return 0.0
+    union = torch.logical_or(mask1, mask2).to(torch.int).sum()
+    return intersection / union
+
+@torch.no_grad()
+def contain(mask1 : torch.Tensor, mask2 : torch.Tensor):
+    """
+    if ->1, mask1 contains mask2
+    """
+    intersection = (mask1 * mask2).sum()
+    return intersection / mask2.sum()
+
+@torch.no_grad()
+def contain_matrix(masks):
+    n_masks = len(masks)
+    contain_matrix = np.ones((n_masks, n_masks))
+    for i in range(n_masks):
+        for j in range(n_masks):
+            if i == j:
+                continue
+            else:
+                contain_matrix[i, j] = contain(masks[i], masks[j])
+    return contain_matrix
+
+def discard_submask(seg_res):
+    """
+    Discard those segmentations that are submasks of another result
+
+    Args:
+        seg_res: List of segmentation results(dict), bitmask is stored as seg_res[index]["segmentation"]
+        contain_m: Containment matrix
+    """
+    mask_tensors = [torch.tensor(mask['segmentation'], dtype=torch.int).cuda() for mask in seg_res]
+    matrix = contain_matrix(mask_tensors)
+    print(matrix)
+    for i in range(len(seg_res)):
+        for j in range(len(seg_res)):
+            if i == j:
+                continue
+            else:
+                if matrix[i, j] > 0.9 and matrix[j, i] < matrix[i, j]:
+                    seg_res[j] = None
+                    print(f"Discard submask {j}, because it is submask of {i}")
+    # discard None in list
+    seg_res = [mask for mask in seg_res if mask is not None]
+    return seg_res

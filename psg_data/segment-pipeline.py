@@ -1,6 +1,7 @@
 import numpy as np
 import argparse
 import os
+import torch  # Add torch import
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
@@ -10,6 +11,7 @@ from utils.psg_utils.image import load_image_from_path
 from utils.psg_utils.image import find_images
 from utils.psg_utils.mask import visualize_masks
 from utils.psg_utils.mask import save_masks
+from utils.psg_utils.mask import discard_submask
 
 def process_single_image(args, model, image_path):
     """
@@ -37,6 +39,7 @@ def process_single_image(args, model, image_path):
     try:
         _, masks = inference(model=model, image=image, level=args.level)
 
+        discard_submask(masks)
         # Create output directory if needed
         if args.save_masks or args.visualize:
             os.makedirs(image_output_dir, exist_ok=True)
