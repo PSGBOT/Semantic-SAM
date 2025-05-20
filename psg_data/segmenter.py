@@ -3,6 +3,8 @@ import os
 import torch
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
+import torch.multiprocessing as mp
+from functools import partial
 
 from psg_data.model import load_model, inference_multilevel
 from utils.psg_utils.image import load_image_from_path, find_images
@@ -105,7 +107,7 @@ class MultiLevelSegmenter:
 
     def process_batch(self, image_paths, levels="2 3 4 5 6"):
         """
-        Process multiple images in batch mode.
+        Process multiple images in batch mode using multiple GPUs.
 
         Args:
             image_paths (list): List of image paths to process
@@ -114,6 +116,105 @@ class MultiLevelSegmenter:
         Returns:
             list: Results for each processed image
         """
+        # Get number of available GPUs
+        num_gpus = torch.cuda.device_count()
+        if num_gpus <= 1:
+            print(f"Only {num_gpus} GPU detected. Using ThreadPoolExecutor instead.")
+            return self._process_batch_threads(image_paths, levels)
+
+        print(f"Processing {len(image_paths)} images using {num_gpus} GPUs...")
+
+        # Split images across GPUs
+        chunks = self._split_list(image_paths, num_gpus)
+
+        # Create process pool with one process per GPU
+        mp.set_start_method('spawn', force=True)
+        with mp.Pool(processes=num_gpus) as pool:
+            # Create partial function with fixed arguments
+            process_chunk_fn = partial(
+                self._process_chunk,
+                levels=levels
+            )
+
+            # Map chunks to processes (each with a different GPU)
+            chunk_results = pool.starmap(
+                process_chunk_fn,
+                [(chunk, gpu_id) for gpu_id, chunk in enumerate(chunks)]
+            )
+
+        # Combine results from all processes
+        results = []
+        for chunk_result in chunk_results:
+            results.extend(chunk_result)
+
+        return results
+
+    def _process_chunk(self, image_paths_chunk, gpu_id, levels):
+        """
+        Process a chunk of images on a specific GPU.
+
+        Args:
+            image_paths_chunk (list): Chunk of image paths to process
+            gpu_id (int): GPU ID to use
+            levels (str): Segmentation levels to use
+
+        Returns:
+            list: Results for processed images in this chunk
+        """
+        # Set device for this process
+        torch.cuda.set_device(gpu_id)
+
+        # Load model on this GPU
+        model = load_model(model_size=self.model_size)
+
+        results = []
+        for image_id, image_path in enumerate(tqdm(image_paths_chunk,
+                                                  desc=f"GPU {gpu_id}")):
+            # Create image-specific output directory
+            image_name = f"id_{image_id}" if image_id is not None else os.path.splitext(os.path.basename(image_path))[0]
+            image_output_dir = os.path.join(self.output_dir, image_name)
+
+            # Load image
+            image = load_image_from_path(image_path)
+            if image is None:
+                results.append({"image_path": image_path, "success": False, "masks": []})
+                continue
+
+            # Run inference
+            try:
+                multilevel_masks = inference_multilevel(model=model, image=image, level=levels)
+
+                for level in multilevel_masks:
+                    multilevel_masks[level] = discard_submask(multilevel_masks[level])
+                    # Create output directory if needed
+                    level_dir = os.path.join(image_output_dir, level)
+                    if self.save_masks or self.visualize:
+                        os.makedirs(level_dir, exist_ok=True)
+
+                    # Save masks if requested
+                    if self.save_masks:
+                        save_masks(multilevel_masks[level], level_dir)
+
+                    # Visualize masks if requested
+                    if self.visualize:
+                        vis_path = os.path.join(level_dir, "visualization.png") if self.save_masks else None
+                        visualize_masks(multilevel_masks[level], save_path=vis_path)
+
+                results.append({
+                    "image_path": image_path,
+                    "success": True,
+                    "masks": multilevel_masks,
+                    "output_dir": image_output_dir
+                })
+
+            except Exception as e:
+                print(f"Error processing {image_path} on GPU {gpu_id}: {e}")
+                results.append({"image_path": image_path, "success": False, "masks": None})
+
+        return results
+
+    def _process_batch_threads(self, image_paths, levels="2 3 4 5 6"):
+        """Original thread-based implementation for single GPU"""
         if self.model is None:
             self.load_model()
 
@@ -133,6 +234,11 @@ class MultiLevelSegmenter:
                 results.append(result)
 
         return results
+
+    def _split_list(self, lst, n):
+        """Split a list into n roughly equal chunks"""
+        k, m = divmod(len(lst), n)
+        return [lst[i*k + min(i, m):(i+1)*k + min(i+1, m)] for i in range(n)]
 
     def process_directory(self, input_dir, levels="2 3 4 5 6", generate_summary=False):
         """
