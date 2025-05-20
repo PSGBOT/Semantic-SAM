@@ -30,7 +30,7 @@ def load_model(model_size='L'):
 
 
 @torch.no_grad()
-def inference(model, image, level=[0], *args, **kwargs):
+def inference(model, image, level="2", *args, **kwargs):
     """
     Run inference on an image using the Semantic SAM model.
 
@@ -57,6 +57,40 @@ def inference(model, image, level=[0], *args, **kwargs):
 
     with torch.autocast(device_type='cuda', dtype=torch.float16):
         result = interactive_infer_image_idino_m2m_auto(
+            model, image, level, text, text_part, text_thresh,
+            text_size, hole_scale, island_scale, semantic,
+            *args, **kwargs
+        )
+        return result
+
+@torch.no_grad()
+def inference_multilevel(model, image, level="2 3 4 5 6", *args, **kwargs):
+    """
+    Run inference on an image using the Semantic SAM model.
+
+    Args:
+        model: The Semantic SAM model
+        image: PIL Image to segment
+        level: Segmentation level or 'All Prompt' for all levels
+
+    Returns:
+        tuple: (image with masks, list of mask dictionaries)
+    """
+    from tasks import interactive_infer_image_idino_m2m_auto_multilevel
+
+    if level == 'All Prompt':
+        level = [1, 2, 3, 4, 5, 6]
+    else:
+        if isinstance(level, str):
+            level = [int(level_str) for level_str in level.split(' ')]
+
+    # Default parameters
+    text_size, hole_scale, island_scale = 640, 100, 100
+    text, text_part, text_thresh = '', '', '0.0'
+    semantic = False
+
+    with torch.autocast(device_type='cuda', dtype=torch.float16):
+        result = interactive_infer_image_idino_m2m_auto_multilevel(
             model, image, level, text, text_part, text_thresh,
             text_size, hole_scale, island_scale, semantic,
             *args, **kwargs
