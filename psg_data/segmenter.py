@@ -305,6 +305,75 @@ class MultiLevelSegmenter:
             results = segmenter.process_directory(image_path, levels, True)
         else:
             results = [segmenter.process_image(image_path, levels)]
+        return results
+
+    def SaveResult_dict(self, results, dir):
+        """
+        Save the results dictionary to a JSON file.
+
+        Args:
+            results (dict): The results dictionary to save.
+            dir (str): The directory to save the file in.
+
+        Returns:
+            None
+        """
+        import json
+        import os
+
+        # Create directory if it doesn't exist
+        os.makedirs(dir, exist_ok=True)
+
+        # Create a serializable version of the results
+        serializable_results = []
+
+        for result in results:
+            # Create a copy of the result to modify
+            serializable_result = result.copy()
+
+            # Instead of serializing mask data, store paths to mask images
+            if result["success"] and "masks" in result:
+                # Store only metadata and paths instead of actual mask data
+                mask_metadata = {}
+
+                for level, masks in result["masks"].items():
+                    level_metadata = []
+
+                    # Get the level directory path
+                    level_dir = os.path.join(result.get("output_dir", ""), level)
+
+                    for i, mask in enumerate(masks):
+                        # Create metadata entry with important info but no binary data
+                        mask_info = {
+                            "id": i,
+                            "area": mask.get("area", 0),
+                            "bbox": mask.get("bbox", []),
+                            "score": mask.get("stability_score", 0),
+                            "mask_path": os.path.join(level_dir, f"mask_{i}.png") if self.save_masks else None
+                        }
+                        level_metadata.append(mask_info)
+
+                    mask_metadata[level] = level_metadata
+
+                serializable_result["masks"] = mask_metadata
+
+                # Add visualization path if available
+                if self.visualize and self.save_masks:
+                    serializable_result["visualizations"] = {
+                        level: os.path.join(os.path.join(result.get("output_dir", ""), level), "visualization.png")
+                        for level in result["masks"]
+                    }
+
+            serializable_results.append(serializable_result)
+
+        # Save to JSON file
+        output_file = os.path.join(dir, "segmentation_results.json")
+        with open(output_file, 'w') as f:
+            json.dump(serializable_results, f, indent=2)
+
+        print(f"Results saved to {output_file}")
+
+
 
 
 
@@ -349,6 +418,6 @@ if __name__ == "__main__":
     )
 
     # Process images
-    segmenter.Generate(args.input, args.level)
-
+    result = segmenter.Generate(args.input, args.level)
+    segmenter.SaveResult_dict(result, args.output_dir)
     print("Done!")

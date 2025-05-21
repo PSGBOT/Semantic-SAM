@@ -91,6 +91,57 @@ def save_masks(masks, output_dir):
         mask_path = os.path.join(output_dir, f"mask_{i+1}.png")
         mask_pil.save(mask_path)
 
+def load_masks(dir):
+    """
+    load the bit_masks(png) under dir as torch.Tensor
+
+    Args:
+        dir: Directory containing mask PNG files
+
+    Returns:
+        List of masks as torch.Tensor objects
+    """
+    if not os.path.exists(dir):
+        raise FileNotFoundError(f"Directory {dir} does not exist")
+
+    masks = []
+    mask_files = [f for f in os.listdir(dir) if f.endswith('.png')]
+
+    for mask_file in sorted(mask_files):
+        mask_path = os.path.join(dir, mask_file)
+        mask = load_mask(mask_path)
+        masks.append(mask)
+
+    return masks
+
+def load_mask(mask_path):
+    """
+    load the bit_mask(png) as torch.Tensor
+
+    Args:
+        mask_path: Path to the mask PNG file
+
+    Returns:
+        Mask as torch.Tensor
+    """
+    if not os.path.exists(mask_path):
+        raise FileNotFoundError(f"Mask file {mask_path} does not exist")
+
+    # Open the image and convert to numpy array
+    mask_img = Image.open(mask_path)
+    mask_np = np.array(mask_img)
+
+    # Convert to binary mask (0 and 1)
+    if mask_np.max() > 1:
+        mask_np = (mask_np > 0).astype(np.int32)
+
+    # Convert to torch tensor
+    mask_tensor = torch.tensor(mask_np, dtype=torch.int32)
+
+    return mask_tensor
+
+
+
 @torch.no_grad()
 def iou(mask1, mask2):
     intersection = (mask1 * mask2).sum()
@@ -148,11 +199,22 @@ def discard_submask(masks):
     res = [mask for mask in masks if mask is not None]
     return res
 
-def apply_mask(parent_masks, child_masks):
+@torch.no_grad()
+def apply_mask(parent_masks : list, child_masks : list):
+    """
+    Given the parent-level masks and child-level masks, generate the corresponding child-level masks for each parent-level mask
+    Args:
+        parent_masks: List of parent-level masks(torch.Tensor)
+        child_masks: List of child-level masks(torch.Tensor)
+    """
     parent_num = len(parent_masks)
     child_num = len(child_masks)
-    valid_children = []
+    res = []
     for i in range(parent_num):
+        valid_children = []
         for j in range(child_num):
-            parent_masks[i]['segmentation'] = parent_masks[i]['segmentation'] * child_masks[j]['segmentation']
-    return
+            valid = contain(parent_masks[i], child_masks[j])
+            if valid > 0.9:
+                valid_children.append(parent_masks[i] * child_masks[j])
+        res.append(valid_children)
+    return res
