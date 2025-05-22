@@ -8,6 +8,7 @@
 import torch
 import numpy as np
 from torchvision import transforms
+from torchvision.transforms.functional import InterpolationMode
 from utils.visualizer import Visualizer
 from typing import Tuple
 from PIL import Image
@@ -18,9 +19,9 @@ import io
 from .automatic_mask_generator import SemanticSamAutomaticMaskGenerator
 metadata = MetadataCatalog.get('coco_2017_train_panoptic')
 
-def interactive_infer_image(model, image,level,all_classes,all_parts, thresh,text_size,hole_scale,island_scale,semantic, refimg=None, reftxt=None, audio_pth=None, video_pth=None):
+def interactive_infer_image(model, image,level,all_classes,all_parts, thresh,text_size,hole_scale,island_scale,semantic, refimg=None, reftxt=None, audio_pth=None, video_pth=None, visualize=None):
     t = []
-    t.append(transforms.Resize(int(text_size), interpolation=Image.BICUBIC))
+    t.append(transforms.Resize(int(text_size), interpolation=InterpolationMode.BICUBIC))
     transform1 = transforms.Compose(t)
     image_ori = transform1(image)
 
@@ -35,14 +36,38 @@ def interactive_infer_image(model, image,level,all_classes,all_parts, thresh,tex
         )
 
     outputs = mask_generator.generate(images)
-
-    fig=plt.figure(figsize=(10, 10))
-    plt.imshow(image_ori)
-    show_anns(outputs)
-    fig.canvas.draw()
-    im=Image.frombytes('RGB', fig.canvas.get_width_height(), fig.canvas.tostring_rgb())
+    if visualize:
+        fig=plt.figure(figsize=(10, 10))
+        plt.imshow(image_ori)
+        show_anns(outputs)
+        fig.canvas.draw()
+        im=Image.frombytes('RGB', fig.canvas.get_width_height(), fig.canvas.tostring_rgb())
+    else:
+        im=image
     return im, outputs
 
+def interactive_infer_image_multilevel(model, image, levels, all_classes,all_parts, thresh,text_size,hole_scale,island_scale,semantic, refimg=None, reftxt=None, audio_pth=None, video_pth=None, visualize=None):
+    t = []
+    t.append(transforms.Resize(int(text_size), interpolation=InterpolationMode.BICUBIC))
+    transform1 = transforms.Compose(t)
+    image_ori = transform1(image)
+
+    image_ori = np.asarray(image_ori)
+    images = torch.from_numpy(image_ori.copy()).permute(2,0,1).cuda()
+
+    outputs = {}
+
+    for level in levels:
+        mask_generator = SemanticSamAutomaticMaskGenerator(model,points_per_side=32,
+                pred_iou_thresh=0.88,
+                stability_score_thresh=0.92,
+                min_mask_region_area=10,
+                level=[level],
+            )
+        output = mask_generator.generate(images)
+        outputs["level{}".format(level)]=output
+
+    return outputs
 
 def remove_small_regions(
     mask: np.ndarray, area_thresh: float, mode: str
