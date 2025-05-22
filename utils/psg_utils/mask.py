@@ -136,7 +136,7 @@ def load_mask(mask_path):
         mask_np = (mask_np > 0).astype(np.int32)
 
     # Convert to torch tensor
-    mask_tensor = torch.tensor(mask_np, dtype=torch.int32)
+    mask_tensor = torch.tensor(mask_np, dtype=torch.int).cuda()
 
     return mask_tensor
 
@@ -176,7 +176,7 @@ def intersect(mask1 : torch.Tensor, mask2 : torch.Tensor):
     return intersection_mask
 
 
-def discard_submask(masks):
+def discard_subseg(seg_res):
     """
     Discard those segmentations that are submasks of another result
 
@@ -184,8 +184,23 @@ def discard_submask(masks):
         seg_res: List of segmentation results(dict), bitmask is stored as seg_res[index]["segmentation"]
         contain_m: Containment matrix
     """
-    mask_tensors = [torch.tensor(mask['segmentation'], dtype=torch.int).cuda() for mask in masks]
+    mask_tensors = [torch.tensor(mask['segmentation'], dtype=torch.int).cuda() for mask in seg_res]
     matrix = contain_matrix(mask_tensors)
+    #print(matrix)
+    for i in range(len(seg_res)):
+        for j in range(len(seg_res)):
+            if i == j:
+                continue
+            else:
+                if matrix[i, j] > 0.9 and matrix[j, i] < matrix[i, j]:
+                    seg_res[j] = None
+                    #print(f"Discard submask {j}, because it is submask of {i}")
+    # discard None in list
+    res = [mask for mask in seg_res if mask is not None]
+    return res
+
+def discard_submask(masks):
+    matrix = contain_matrix(masks)
     #print(matrix)
     for i in range(len(masks)):
         for j in range(len(masks)):
@@ -199,6 +214,7 @@ def discard_submask(masks):
     res = [mask for mask in masks if mask is not None]
     return res
 
+
 @torch.no_grad()
 def apply_mask(parent_masks : list, child_masks : list):
     """
@@ -206,6 +222,8 @@ def apply_mask(parent_masks : list, child_masks : list):
     Args:
         parent_masks: List of parent-level masks(torch.Tensor)
         child_masks: List of child-level masks(torch.Tensor)
+    Returns:
+        valid_children for each parent, in a list (index is aligned with parent)
     """
     parent_num = len(parent_masks)
     child_num = len(child_masks)
@@ -214,7 +232,7 @@ def apply_mask(parent_masks : list, child_masks : list):
         valid_children = []
         for j in range(child_num):
             valid = contain(parent_masks[i], child_masks[j])
-            if valid > 0.9:
+            if valid > 0.3:
                 valid_children.append(parent_masks[i] * child_masks[j])
         res.append(valid_children)
     return res

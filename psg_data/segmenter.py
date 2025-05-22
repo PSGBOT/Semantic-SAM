@@ -8,12 +8,12 @@ from functools import partial
 
 from psg_data.model import load_model, inference_multilevel
 from utils.psg_utils.image import load_image_from_path, find_images
-from utils.psg_utils.mask import visualize_masks, save_masks, discard_submask
+from utils.psg_utils.mask import visualize_masks, save_masks, discard_subseg
 
 
 class MultiLevelSegmenter:
     """
-    A class for performing multi-level segmentation using Semantic SAM.
+    A class for performing multi-level segmentation using Semantic SAM. Generate the level seg dataset.
     """
 
     def __init__(self, model_size="L", output_dir="./output", visualize=False,
@@ -79,7 +79,7 @@ class MultiLevelSegmenter:
             multilevel_masks = inference_multilevel(model=self.model, image=image, level=levels)
 
             for level in multilevel_masks:
-                multilevel_masks[level] = discard_submask(multilevel_masks[level])
+                multilevel_masks[level] = discard_subseg(multilevel_masks[level])
                 # Create output directory if needed
                 level_dir = os.path.join(image_output_dir, level)
                 if self.save_masks or self.visualize:
@@ -185,7 +185,7 @@ class MultiLevelSegmenter:
                 multilevel_masks = inference_multilevel(model=model, image=image, level=levels)
 
                 for level in multilevel_masks:
-                    multilevel_masks[level] = discard_submask(multilevel_masks[level])
+                    multilevel_masks[level] = discard_subseg(multilevel_masks[level])
                     # Create output directory if needed
                     level_dir = os.path.join(image_output_dir, level)
                     if self.save_masks or self.visualize:

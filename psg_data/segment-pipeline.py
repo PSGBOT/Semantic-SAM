@@ -12,7 +12,7 @@ from utils.psg_utils.image import load_image_from_path
 from utils.psg_utils.image import find_images
 from utils.psg_utils.mask import visualize_masks
 from utils.psg_utils.mask import save_masks
-from utils.psg_utils.mask import discard_submask
+from utils.psg_utils.mask import discard_subseg
 
 
 def process_single_image(args, model, image_path):
@@ -41,7 +41,7 @@ def process_single_image(args, model, image_path):
     try:
         _, masks = inference(model=model, image=image, level=args.level)
 
-        masks = discard_submask(masks)
+        masks = discard_subseg(masks)
         # Create output directory if needed
         if args.save_masks or args.visualize:
             os.makedirs(image_output_dir, exist_ok=True)
@@ -93,7 +93,7 @@ def process_single_image_multilevel(args, model, image_path, id):
         multilevel_masks = inference_multilevel(model=model, image=image, level=args.level)
 
         for level in multilevel_masks:
-            multilevel_masks[level] = discard_submask(multilevel_masks[level])
+            multilevel_masks[level] = discard_subseg(multilevel_masks[level])
             # Create output directory if needed
             level_dir = image_output_dir + "/" + level
             if args.save_masks or args.visualize:
