@@ -68,7 +68,7 @@ class PartlevelPostprocesser:
 
             # Create a PIL image and save
             mask_pil = Image.fromarray(mask_img)
-            mask_path = os.path.join(output_dir, f"mask_{i}.png")
+            mask_path = os.path.join(output_dir, f"mask{i}.png")
             mask_pil.save(mask_path)
 
     def _load_level_seg_masks(self, image_id, level=2):
@@ -156,9 +156,95 @@ class PartlevelPostprocesser:
             except Exception as e:
                 print(f"Error removing directory {image_dir}: {e}")
 
+    def _generate_part_dataset_info(self):
+        """
+        Based on the processed file structure, generate the dataset info as `self.part_seg_dataset`,
+        for each mask, generate and store the bbox information
+        """
+        self.part_seg_dataset = {}
+
+        # Walk through the output directory
+        for image_dir in os.listdir(self.dataset_output_dir):
+            image_path = os.path.join(self.dataset_output_dir, image_dir)
+
+            # Skip if not a directory or doesn't start with "id"
+            if not os.path.isdir(image_path) or not image_dir.startswith("id"):
+                continue
+
+            image_id = image_dir.split(" ")[1]  # Extract ID from "id X"
+            self.part_seg_dataset[f"id {image_id}"] = {"masks": {}}
+
+            # Process masks recursively
+            self._process_masks_recursive(image_path, self.part_seg_dataset[f"id {image_id}"]["masks"], "")
+
+        # Save the dataset to a JSON file
+        output_path = os.path.join(self.dataset_output_dir, "part_seg_dataset.json")
+        try:
+            with open(output_path, 'w') as f:
+                json.dump(self.part_seg_dataset, f, indent=2)
+            print(f"Part segmentation dataset saved to {output_path}")
+        except Exception as e:
+            print(f"Error saving dataset: {e}")
+
+        return self.part_seg_dataset
+
+    def _process_masks_recursive(self, dir_path, dataset_dict, parent_path):
+        """
+        Recursively process masks in a directory and its subdirectories
+
+        Args:
+            dir_path (str): Path to the directory
+            dataset_dict (dict): Dictionary to store mask information
+            parent_path (str): Path from root to parent directory
+        """
+        # Get all mask PNG files in the current directory
+        mask_files = [f for f in os.listdir(dir_path) if f.endswith(".png") and os.path.isfile(os.path.join(dir_path, f))]
+
+        # Process each mask file
+        for mask_file in mask_files:
+            mask_path = os.path.join(dir_path, mask_file)
+            try:
+                # Load mask
+                mask_img = Image.open(mask_path)
+                mask_array = np.array(mask_img)
+
+                # Calculate bounding box
+                if mask_array.sum() > 0:
+                    # Find non-zero pixels
+                    rows = np.any(mask_array, axis=1)
+                    cols = np.any(mask_array, axis=0)
+                    y1, y2 = np.where(rows)[0][[0, -1]]
+                    x1, x2 = np.where(cols)[0][[0, -1]]
+
+                    # Calculate area
+                    area = float(mask_array.sum())/255
+
+                    # Store mask info
+                    mask_id = os.path.splitext(mask_file)[0]  # Remove .png extension
+                    mask_info = {
+                        "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                        "area": area,
+                        "path": os.path.join(parent_path, mask_file)
+                    }
+                    dataset_dict[mask_id] = mask_info
+            except Exception as e:
+                print(f"Error processing mask {mask_path}: {e}")
+
+        # Process subdirectories
+        for subdir in os.listdir(dir_path):
+            subdir_path = os.path.join(dir_path, subdir)
+            if os.path.isdir(subdir_path) and subdir.startswith("mask"):
+                # Create entry for this mask directory
+                dataset_dict[subdir]["children"]={}
+
+                # Process masks in this subdirectory
+                new_parent_path = os.path.join(parent_path, subdir)
+                self._process_masks_recursive(subdir_path, dataset_dict[subdir]["children"], new_parent_path)
+
     def Process(self, levels):
         for i in tqdm(range(len(self.level_seg_dataset))):
             self.process_mask(i, levels)
+        self._generate_part_dataset_info()
 
 
 
