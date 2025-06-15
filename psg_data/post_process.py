@@ -7,10 +7,12 @@ from utils.psg_utils.mask import load_masks, apply_mask, discard_submask
 from PIL import Image
 import shutil
 
+
 class PartlevelPostprocesser:
     """
     A class for postprocess the level-seg dataset into part-seg dataset. Masks are aligned in a hyerichical way.
     """
+
     def __init__(self, output_dir="./output", visualize=False):
         self.dataset_output_dir = output_dir
         self.visualize = visualize
@@ -35,7 +37,7 @@ class PartlevelPostprocesser:
                 print(f"Dataset file not found: {dataset_json_path}")
                 return None
 
-            with open(dataset_json_path, 'r') as f:
+            with open(dataset_json_path, "r") as f:
                 dataset = json.load(f)
 
             print(f"Loaded level segmentation dataset from {dataset_json_path}")
@@ -72,7 +74,9 @@ class PartlevelPostprocesser:
             mask_pil.save(mask_path)
 
     def _load_level_seg_masks(self, image_id, level=2):
-        dir = os.path.join(self.level_seg_dataset[image_id]["output_dir"], f"level{level}")
+        dir = os.path.join(
+            self.level_seg_dataset[image_id]["output_dir"], f"level{level}"
+        )
         return load_masks(dir)
 
     def process_mask(self, image_id, levels=[2, 3, 4, 5, 6]):
@@ -84,13 +88,27 @@ class PartlevelPostprocesser:
         cur_level = levels[0]
         top_level = levels[-1]
 
-        self._process_mask_iterative(image_id, output_dir,
-                                    multilevel_masks[cur_level],
-                                    multilevel_masks[cur_level+1],
-                                    multilevel_masks, cur_level, top_level)
+        self._process_mask_iterative(
+            image_id,
+            output_dir,
+            multilevel_masks[cur_level],
+            multilevel_masks[cur_level + 1],
+            multilevel_masks,
+            cur_level,
+            top_level,
+        )
         self._prune_masks(output_dir)
 
-    def _process_mask_iterative(self, image_id, output_dir, parent_masks, child_masks, total_masks, level=2, top_level=6):
+    def _process_mask_iterative(
+        self,
+        image_id,
+        output_dir,
+        parent_masks,
+        child_masks,
+        total_masks,
+        level=2,
+        top_level=6,
+    ):
         self._save_masks(parent_masks, output_dir)
         if level == top_level:
             return
@@ -101,7 +119,15 @@ class PartlevelPostprocesser:
                 # skip this level
                 final_children = [parent_masks[i]]
             child_output_dir = os.path.join(output_dir, f"mask{i}")
-            self._process_mask_iterative(image_id, child_output_dir, final_children, total_masks[level+1], total_masks, level+1, top_level)
+            self._process_mask_iterative(
+                image_id,
+                child_output_dir,
+                final_children,
+                total_masks[level + 1],
+                total_masks,
+                level + 1,
+                top_level,
+            )
         return
 
     def _prune_masks(self, image_dir):
@@ -117,7 +143,11 @@ class PartlevelPostprocesser:
             return
 
         # Get all mask directories
-        mask_dirs = [d for d in os.listdir(image_dir) if d.startswith("mask") and os.path.isdir(os.path.join(image_dir, d))]
+        mask_dirs = [
+            d
+            for d in os.listdir(image_dir)
+            if d.startswith("mask") and os.path.isdir(os.path.join(image_dir, d))
+        ]
 
         # Process each mask directory
         for mask_dir in mask_dirs:
@@ -125,11 +155,19 @@ class PartlevelPostprocesser:
             self._prune_masks(mask_path)  # Recursively process subdirectories
 
         # Get all mask PNG files in the current directory
-        mask_files = [f for f in os.listdir(image_dir) if f.endswith(".png") and os.path.isfile(os.path.join(image_dir, f))]
+        mask_files = [
+            f
+            for f in os.listdir(image_dir)
+            if f.endswith(".png") and os.path.isfile(os.path.join(image_dir, f))
+        ]
 
         # Check if there's only one mask PNG and a mask0 directory
         mask0_dir = os.path.join(image_dir, "mask0")
-        if len(mask_files) == 1 and os.path.exists(mask0_dir) and os.path.isdir(mask0_dir):
+        if (
+            len(mask_files) == 1
+            and os.path.exists(mask0_dir)
+            and os.path.isdir(mask0_dir)
+        ):
             try:
                 # rename subfolder `mask0/` into `mask0_tmp/`
                 mask0_tmp_dir = os.path.join(image_dir, "mask0_tmp")
@@ -149,7 +187,9 @@ class PartlevelPostprocesser:
                 os.rmdir(mask0_tmp_dir)
             except Exception as e:
                 print(f"Error pruning masks in {image_dir}: {e}")
-        elif len(mask_files) <= 1 and not(os.path.exists(mask0_dir) and os.path.isdir(mask0_dir)):
+        elif len(mask_files) <= 1 and not (
+            os.path.exists(mask0_dir) and os.path.isdir(mask0_dir)
+        ):
             try:
                 # Remove directory and all its contents
                 shutil.rmtree(image_dir)
@@ -175,12 +215,14 @@ class PartlevelPostprocesser:
             self.part_seg_dataset[f"id {image_id}"] = {"masks": {}}
 
             # Process masks recursively
-            self._process_masks_recursive(image_path, self.part_seg_dataset[f"id {image_id}"]["masks"], "")
+            self._process_masks_recursive(
+                image_path, self.part_seg_dataset[f"id {image_id}"]["masks"], ""
+            )
 
         # Save the dataset to a JSON file
         output_path = os.path.join(self.dataset_output_dir, "part_seg_dataset.json")
         try:
-            with open(output_path, 'w') as f:
+            with open(output_path, "w") as f:
                 json.dump(self.part_seg_dataset, f, indent=2)
             print(f"Part segmentation dataset saved to {output_path}")
         except Exception as e:
@@ -198,7 +240,11 @@ class PartlevelPostprocesser:
             parent_path (str): Path from root to parent directory
         """
         # Get all mask PNG files in the current directory
-        mask_files = [f for f in os.listdir(dir_path) if f.endswith(".png") and os.path.isfile(os.path.join(dir_path, f))]
+        mask_files = [
+            f
+            for f in os.listdir(dir_path)
+            if f.endswith(".png") and os.path.isfile(os.path.join(dir_path, f))
+        ]
 
         # Process each mask file
         for mask_file in mask_files:
@@ -217,14 +263,14 @@ class PartlevelPostprocesser:
                     x1, x2 = np.where(cols)[0][[0, -1]]
 
                     # Calculate area
-                    area = float(mask_array.sum())/255
+                    area = float(mask_array.sum()) / 255
 
                     # Store mask info
                     mask_id = os.path.splitext(mask_file)[0]  # Remove .png extension
                     mask_info = {
                         "bbox": [int(x1), int(y1), int(x2), int(y2)],
                         "area": area,
-                        "path": os.path.join(parent_path, mask_file)
+                        "path": os.path.join(parent_path, mask_file),
                     }
                     dataset_dict[mask_id] = mask_info
             except Exception as e:
@@ -235,18 +281,22 @@ class PartlevelPostprocesser:
             subdir_path = os.path.join(dir_path, subdir)
             if os.path.isdir(subdir_path) and subdir.startswith("mask"):
                 # Create entry for this mask directory
-                dataset_dict[subdir]["children"]={}
+                dataset_dict[subdir]["children"] = {}
 
                 # Process masks in this subdirectory
                 new_parent_path = os.path.join(parent_path, subdir)
-                self._process_masks_recursive(subdir_path, dataset_dict[subdir]["children"], new_parent_path)
+                self._process_masks_recursive(
+                    subdir_path, dataset_dict[subdir]["children"], new_parent_path
+                )
 
     def Process(self, levels):
         for i in tqdm(range(len(self.level_seg_dataset))):
             self.process_mask(i, levels)
+            shutil.copyfile(
+                self.level_seg_dataset[i]["image_path"],
+                os.path.join(self.dataset_output_dir, f"id {i}.png"),
+            )
         self._generate_part_dataset_info()
-
-
 
 
 # example usage
@@ -257,19 +307,31 @@ if __name__ == "__main__":
         """Parse command line arguments."""
         parser = argparse.ArgumentParser(description="PSG Post Processor")
 
-        parser.add_argument("--input", type=str, default="./examples/truck.jpg",
-                            help="Path to input image or directory containing images")
-        parser.add_argument("--level", type=str, default="2 3 4 5 6",
-                            help="Segmentation level (1-6) or 'All Prompt'")
-        parser.add_argument("--output_dir", type=str, default="./output",
-                            help="Directory to save output masks")
+        parser.add_argument(
+            "--input",
+            type=str,
+            default="./examples/truck.jpg",
+            help="Path to input image or directory containing images",
+        )
+        parser.add_argument(
+            "--level",
+            type=str,
+            default="2 3 4 5 6",
+            help="Segmentation level (1-6) or 'All Prompt'",
+        )
+        parser.add_argument(
+            "--output_dir",
+            type=str,
+            default="./output",
+            help="Directory to save output masks",
+        )
 
         return parser.parse_args()
 
     args = parse_args()
     levels = args.level
     if isinstance(levels, str):
-        levels = [int(level_str) for level_str in levels.split(' ')]
+        levels = [int(level_str) for level_str in levels.split(" ")]
 
     processor = PartlevelPostprocesser(args.output_dir)
 

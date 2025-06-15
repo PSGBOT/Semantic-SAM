@@ -1,7 +1,7 @@
 import numpy as np
 import argparse
 import os
-import torch  # Add torch import
+import shutil
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
@@ -52,19 +52,24 @@ def process_single_image(args, model, image_path):
 
         # Visualize masks if requested
         if args.visualize:
-            vis_path = os.path.join(image_output_dir, "visualization.png") if args.save_masks else None
+            vis_path = (
+                os.path.join(image_output_dir, "visualization.png")
+                if args.save_masks
+                else None
+            )
             visualize_masks(masks, save_path=vis_path)
 
         return {
             "image_path": image_path,
             "success": True,
             "masks": masks,
-            "output_dir": image_output_dir
+            "output_dir": image_output_dir,
         }
 
     except Exception as e:
         print(f"Error processing {image_path}: {e}")
         return {"image_path": image_path, "success": False, "masks": []}
+
 
 def process_single_image_multilevel(args, model, image_path, id):
     """
@@ -81,7 +86,7 @@ def process_single_image_multilevel(args, model, image_path, id):
     # Create image-specific output directory
     image_name = "id " + str(id)
     image_output_dir = os.path.join(args.output_dir, image_name)
-
+    saved_src_img_path = image_path
     # Load image
     image = load_image_from_path(image_path)
     if image is None:
@@ -90,7 +95,9 @@ def process_single_image_multilevel(args, model, image_path, id):
 
     # Run inference
     try:
-        multilevel_masks = inference_multilevel(model=model, image=image, level=args.level)
+        multilevel_masks = inference_multilevel(
+            model=model, image=image, level=args.level
+        )
 
         for level in multilevel_masks:
             multilevel_masks[level] = discard_subseg(multilevel_masks[level])
@@ -102,45 +109,80 @@ def process_single_image_multilevel(args, model, image_path, id):
             # Save masks if requested
             if args.save_masks:
                 save_masks(multilevel_masks[level], level_dir)
+                # copy the source image from image path to output args.output_dir
+                saved_src_img_path = os.path.join(image_output_dir, f"id {id}.png")
+                shutil.copyfile(image_path, saved_src_img_path)
 
             # Visualize masks if requested
             if args.visualize:
-                vis_path = os.path.join(image_output_dir, "visualization.png") if args.save_masks else None
+                vis_path = (
+                    os.path.join(image_output_dir, "visualization.png")
+                    if args.save_masks
+                    else None
+                )
                 visualize_masks(multilevel_masks[level], save_path=vis_path)
 
         return {
-            "image_path": image_path,
+            "image_path": saved_src_img_path,
             "success": True,
             "masks": multilevel_masks,
-            "output_dir": image_output_dir
+            "output_dir": image_output_dir,
         }
 
     except Exception as e:
         print(f"Error processing {image_path}: {e}")
         return {"image_path": image_path, "success": False, "masks": None}
 
+
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Semantic SAM Segmentation Pipeline")
 
-    parser.add_argument("--input", type=str, default="./examples/truck.jpg",
-                        help="Path to input image or directory containing images")
-    parser.add_argument("--level", type=str, default="2 3 4 5 6",
-                        help="Segmentation level (1-6) or 'All Prompt'")
-    parser.add_argument("--model_size", type=str, default="L",
-                        choices=["T", "L"], help="Model size: T (tiny) or L (large)")
-    parser.add_argument("--output_dir", type=str, default="./output",
-                        help="Directory to save output masks")
-    parser.add_argument("--visualize", action="store_true",
-                        help="Visualize masks")
-    parser.add_argument("--save_masks", action="store_true",
-                        help="Save individual masks as binary images")
-    parser.add_argument("--batch", action="store_true",
-                        help="Process all images in the input directory")
-    parser.add_argument("--workers", type=int, default=1,
-                        help="Number of worker threads for loading images (batch mode only)")
-    parser.add_argument("--summary", action="store_true",
-                        help="Generate a summary of all processed images")
+    parser.add_argument(
+        "--input",
+        type=str,
+        default="./examples/truck.jpg",
+        help="Path to input image or directory containing images",
+    )
+    parser.add_argument(
+        "--level",
+        type=str,
+        default="2 3 4 5 6",
+        help="Segmentation level (1-6) or 'All Prompt'",
+    )
+    parser.add_argument(
+        "--model_size",
+        type=str,
+        default="L",
+        choices=["T", "L"],
+        help="Model size: T (tiny) or L (large)",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="./output",
+        help="Directory to save output masks",
+    )
+    parser.add_argument("--visualize", action="store_true", help="Visualize masks")
+    parser.add_argument(
+        "--save_masks",
+        action="store_true",
+        help="Save individual masks as binary images",
+    )
+    parser.add_argument(
+        "--batch", action="store_true", help="Process all images in the input directory"
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of worker threads for loading images (batch mode only)",
+    )
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="Generate a summary of all processed images",
+    )
 
     return parser.parse_args()
 
@@ -181,7 +223,15 @@ def main():
         with ThreadPoolExecutor(max_workers=args.workers) as executor:
             futures = []
             for image_path in image_paths:
-                futures.append(executor.submit(process_single_image_multilevel, args, model, image_path, image_id))
+                futures.append(
+                    executor.submit(
+                        process_single_image_multilevel,
+                        args,
+                        model,
+                        image_path,
+                        image_id,
+                    )
+                )
                 image_id += 1
 
             # Process results as they complete
@@ -192,7 +242,7 @@ def main():
     # Generate summary if requested
     if args.summary and len(results) > 0:
         summary_path = os.path.join(args.output_dir, "summary.txt")
-        with open(summary_path, 'w') as f:
+        with open(summary_path, "w") as f:
             f.write(f"Processed {len(results)} images\n\n")
 
             for result in results:
@@ -202,10 +252,10 @@ def main():
                     f.write(f"Number of levels: {len(result['masks'])}\n")
 
                     # Add mask statistics
-                    for level in result['masks']:
+                    for level in result["masks"]:
                         if result["masks"][level]:
                             f.write(f"Level: {level}\n")
-                            areas = [mask['area'] for mask in result['masks'][level]]
+                            areas = [mask["area"] for mask in result["masks"][level]]
                             f.write(f"\tAverage mask area: {np.mean(areas):.2f}\n")
                             f.write(f"\tLargest mask area: {np.max(areas):.2f}\n")
                             f.write(f"\tSmallest mask area: {np.min(areas):.2f}\n")

@@ -1,4 +1,5 @@
 import numpy as np
+import shutil
 import os
 import torch
 from tqdm import tqdm
@@ -16,8 +17,14 @@ class MultiLevelSegmenter:
     A class for performing multi-level segmentation using Semantic SAM. Generate the level seg dataset.
     """
 
-    def __init__(self, model_size="L", output_dir="./output", visualize=False,
-                 save_masks=False, workers=1):
+    def __init__(
+        self,
+        model_size="L",
+        output_dir="./output",
+        visualize=False,
+        save_masks=False,
+        workers=1,
+    ):
         """
         Initialize the MultiLevelSegmenter.
 
@@ -65,8 +72,13 @@ class MultiLevelSegmenter:
             self.load_model()
 
         # Create image-specific output directory
-        image_name = f"id_{image_id}" if image_id is not None else os.path.splitext(os.path.basename(image_path))[0]
+        image_name = (
+            f"id_{image_id}"
+            if image_id is not None
+            else os.path.splitext(os.path.basename(image_path))[0]
+        )
         image_output_dir = os.path.join(self.output_dir, image_name)
+        saved_src_img_path = image_path
 
         # Load image
         image = load_image_from_path(image_path)
@@ -76,7 +88,9 @@ class MultiLevelSegmenter:
 
         # Run inference
         try:
-            multilevel_masks = inference_multilevel(model=self.model, image=image, level=levels)
+            multilevel_masks = inference_multilevel(
+                model=self.model, image=image, level=levels
+            )
 
             for level in multilevel_masks:
                 multilevel_masks[level] = discard_subseg(multilevel_masks[level])
@@ -88,17 +102,26 @@ class MultiLevelSegmenter:
                 # Save masks if requested
                 if self.save_masks:
                     save_masks(multilevel_masks[level], level_dir)
+                    # copy the source image from image path to output args.output_dir
+                    saved_src_img_path = os.path.join(
+                        self.output_dir, f"id {image_id}.png"
+                    )
+                    shutil.copyfile(image_path, saved_src_img_path)
 
                 # Visualize masks if requested
                 if self.visualize:
-                    vis_path = os.path.join(level_dir, "visualization.png") if self.save_masks else None
+                    vis_path = (
+                        os.path.join(level_dir, "visualization.png")
+                        if self.save_masks
+                        else None
+                    )
                     visualize_masks(multilevel_masks[level], save_path=vis_path)
 
             return {
-                "image_path": image_path,
+                "image_path": saved_src_img_path,
                 "success": True,
                 "masks": multilevel_masks,
-                "output_dir": image_output_dir
+                "output_dir": image_output_dir,
             }
 
         except Exception as e:
@@ -128,18 +151,15 @@ class MultiLevelSegmenter:
         chunks = self._split_list(image_paths, num_gpus)
 
         # Create process pool with one process per GPU
-        mp.set_start_method('spawn', force=True)
+        mp.set_start_method("spawn", force=True)
         with mp.Pool(processes=num_gpus) as pool:
             # Create partial function with fixed arguments
-            process_chunk_fn = partial(
-                self._process_chunk,
-                levels=levels
-            )
+            process_chunk_fn = partial(self._process_chunk, levels=levels)
 
             # Map chunks to processes (each with a different GPU)
             chunk_results = pool.starmap(
                 process_chunk_fn,
-                [(chunk, gpu_id) for gpu_id, chunk in enumerate(chunks)]
+                [(chunk, gpu_id) for gpu_id, chunk in enumerate(chunks)],
             )
 
         # Combine results from all processes
@@ -168,21 +188,31 @@ class MultiLevelSegmenter:
         model = load_model(model_size=self.model_size)
 
         results = []
-        for image_id, image_path in enumerate(tqdm(image_paths_chunk,
-                                                  desc=f"GPU {gpu_id}")):
+        for image_id, image_path in enumerate(
+            tqdm(image_paths_chunk, desc=f"GPU {gpu_id}")
+        ):
             # Create image-specific output directory
-            image_name = f"id_{image_id}" if image_id is not None else os.path.splitext(os.path.basename(image_path))[0]
+            image_name = (
+                f"id_{image_id}"
+                if image_id is not None
+                else os.path.splitext(os.path.basename(image_path))[0]
+            )
             image_output_dir = os.path.join(self.output_dir, image_name)
+            saved_src_img_path = image_path
 
             # Load image
             image = load_image_from_path(image_path)
             if image is None:
-                results.append({"image_path": image_path, "success": False, "masks": []})
+                results.append(
+                    {"image_path": image_path, "success": False, "masks": []}
+                )
                 continue
 
             # Run inference
             try:
-                multilevel_masks = inference_multilevel(model=model, image=image, level=levels)
+                multilevel_masks = inference_multilevel(
+                    model=model, image=image, level=levels
+                )
 
                 for level in multilevel_masks:
                     multilevel_masks[level] = discard_subseg(multilevel_masks[level])
@@ -194,22 +224,35 @@ class MultiLevelSegmenter:
                     # Save masks if requested
                     if self.save_masks:
                         save_masks(multilevel_masks[level], level_dir)
+                        # copy the source image from image path to output args.output_dir
+                        saved_src_img_path = os.path.join(
+                            image_output_dir, f"id {image_id}.png"
+                        )
+                        shutil.copyfile(image_path, saved_src_img_path)
 
                     # Visualize masks if requested
                     if self.visualize:
-                        vis_path = os.path.join(level_dir, "visualization.png") if self.save_masks else None
+                        vis_path = (
+                            os.path.join(level_dir, "visualization.png")
+                            if self.save_masks
+                            else None
+                        )
                         visualize_masks(multilevel_masks[level], save_path=vis_path)
 
-                results.append({
-                    "image_path": image_path,
-                    "success": True,
-                    "masks": multilevel_masks,
-                    "output_dir": image_output_dir
-                })
+                results.append(
+                    {
+                        "image_path": image_path,
+                        "success": True,
+                        "masks": multilevel_masks,
+                        "output_dir": image_output_dir,
+                    }
+                )
 
             except Exception as e:
                 print(f"Error processing {image_path} on GPU {gpu_id}: {e}")
-                results.append({"image_path": image_path, "success": False, "masks": None})
+                results.append(
+                    {"image_path": image_path, "success": False, "masks": None}
+                )
 
         return results
 
@@ -225,8 +268,9 @@ class MultiLevelSegmenter:
         with ThreadPoolExecutor(max_workers=self.workers) as executor:
             futures = []
             for image_id, image_path in enumerate(image_paths):
-                futures.append(executor.submit(
-                    self.process_image, image_path, levels, image_id))
+                futures.append(
+                    executor.submit(self.process_image, image_path, levels, image_id)
+                )
 
             # Process results as they complete
             for future in tqdm(futures, total=len(image_paths)):
@@ -238,7 +282,7 @@ class MultiLevelSegmenter:
     def _split_list(self, lst, n):
         """Split a list into n roughly equal chunks"""
         k, m = divmod(len(lst), n)
-        return [lst[i*k + min(i, m):(i+1)*k + min(i+1, m)] for i in range(n)]
+        return [lst[i * k + min(i, m) : (i + 1) * k + min(i + 1, m)] for i in range(n)]
 
     def process_directory(self, input_dir, levels="2 3 4 5 6", generate_summary=False):
         """
@@ -276,7 +320,7 @@ class MultiLevelSegmenter:
             results (list): List of processing results
         """
         summary_path = os.path.join(self.output_dir, "summary.txt")
-        with open(summary_path, 'w') as f:
+        with open(summary_path, "w") as f:
             f.write(f"Processed {len(results)} images\n\n")
 
             for result in results:
@@ -286,10 +330,10 @@ class MultiLevelSegmenter:
                     f.write(f"Number of levels: {len(result['masks'])}\n")
 
                     # Add mask statistics
-                    for level in result['masks']:
+                    for level in result["masks"]:
                         if result["masks"][level]:
                             f.write(f"Level: {level}\n")
-                            areas = [mask['area'] for mask in result['masks'][level]]
+                            areas = [mask["area"] for mask in result["masks"][level]]
                             f.write(f"\tAverage mask area: {np.mean(areas):.2f}\n")
                             f.write(f"\tLargest mask area: {np.max(areas):.2f}\n")
                             f.write(f"\tSmallest mask area: {np.min(areas):.2f}\n")
@@ -349,7 +393,9 @@ class MultiLevelSegmenter:
                             "area": mask.get("area", 0),
                             "bbox": mask.get("bbox", []),
                             "score": mask.get("stability_score", 0),
-                            "mask_path": os.path.join(level_dir, f"mask_{i}.png") if self.save_masks else None
+                            "mask_path": os.path.join(level_dir, f"mask_{i}.png")
+                            if self.save_masks
+                            else None,
                         }
                         level_metadata.append(mask_info)
 
@@ -360,7 +406,10 @@ class MultiLevelSegmenter:
                 # Add visualization path if available
                 if self.visualize and self.save_masks:
                     serializable_result["visualizations"] = {
-                        level: os.path.join(os.path.join(result.get("output_dir", ""), level), "visualization.png")
+                        level: os.path.join(
+                            os.path.join(result.get("output_dir", ""), level),
+                            "visualization.png",
+                        )
                         for level in result["masks"]
                     }
 
@@ -368,13 +417,10 @@ class MultiLevelSegmenter:
 
         # Save to JSON file
         output_file = os.path.join(dir, "segmentation_results.json")
-        with open(output_file, 'w') as f:
+        with open(output_file, "w") as f:
             json.dump(serializable_results, f, indent=2)
 
         print(f"Results saved to {output_file}")
-
-
-
 
 
 # Example usage
@@ -383,26 +429,57 @@ if __name__ == "__main__":
 
     def parse_args():
         """Parse command line arguments."""
-        parser = argparse.ArgumentParser(description="Semantic SAM Segmentation Pipeline")
+        parser = argparse.ArgumentParser(
+            description="Semantic SAM Segmentation Pipeline"
+        )
 
-        parser.add_argument("--input", type=str, default="./examples/truck.jpg",
-                            help="Path to input image or directory containing images")
-        parser.add_argument("--level", type=str, default="2 3 4 5 6",
-                            help="Segmentation level (1-6) or 'All Prompt'")
-        parser.add_argument("--model_size", type=str, default="L",
-                            choices=["T", "L"], help="Model size: T (tiny) or L (large)")
-        parser.add_argument("--output_dir", type=str, default="./output",
-                            help="Directory to save output masks")
-        parser.add_argument("--visualize", action="store_true",
-                            help="Visualize masks")
-        parser.add_argument("--save_masks", action="store_true",
-                            help="Save individual masks as binary images")
-        parser.add_argument("--batch", action="store_true",
-                            help="Process all images in the input directory")
-        parser.add_argument("--workers", type=int, default=1,
-                            help="Number of worker threads for loading images (batch mode only)")
-        parser.add_argument("--summary", action="store_true",
-                            help="Generate a summary of all processed images")
+        parser.add_argument(
+            "--input",
+            type=str,
+            default="./examples/truck.jpg",
+            help="Path to input image or directory containing images",
+        )
+        parser.add_argument(
+            "--level",
+            type=str,
+            default="2 3 4 5 6",
+            help="Segmentation level (1-6) or 'All Prompt'",
+        )
+        parser.add_argument(
+            "--model_size",
+            type=str,
+            default="L",
+            choices=["T", "L"],
+            help="Model size: T (tiny) or L (large)",
+        )
+        parser.add_argument(
+            "--output_dir",
+            type=str,
+            default="./output",
+            help="Directory to save output masks",
+        )
+        parser.add_argument("--visualize", action="store_true", help="Visualize masks")
+        parser.add_argument(
+            "--save_masks",
+            action="store_true",
+            help="Save individual masks as binary images",
+        )
+        parser.add_argument(
+            "--batch",
+            action="store_true",
+            help="Process all images in the input directory",
+        )
+        parser.add_argument(
+            "--workers",
+            type=int,
+            default=1,
+            help="Number of worker threads for loading images (batch mode only)",
+        )
+        parser.add_argument(
+            "--summary",
+            action="store_true",
+            help="Generate a summary of all processed images",
+        )
 
         return parser.parse_args()
 
@@ -414,7 +491,7 @@ if __name__ == "__main__":
         output_dir=args.output_dir,
         visualize=args.visualize,
         save_masks=args.save_masks,
-        workers=args.workers
+        workers=args.workers,
     )
 
     # Process images
