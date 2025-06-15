@@ -6,6 +6,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 import torch.multiprocessing as mp
 from functools import partial
+from PIL import Image
 
 from psg_data.model import load_model, inference_multilevel
 from utils.psg_utils.image import load_image_from_path, find_images
@@ -102,11 +103,11 @@ class MultiLevelSegmenter:
                 # Save masks if requested
                 if self.save_masks:
                     save_masks(multilevel_masks[level], level_dir)
-                    # copy the source image from image path to output args.output_dir
+                    # first convert to png fomrat
                     saved_src_img_path = os.path.join(
                         self.output_dir, f"id {image_id}.png"
                     )
-                    shutil.copyfile(image_path, saved_src_img_path)
+                    Image.open(image_path).save(saved_src_img_path)
 
                 # Visualize masks if requested
                 if self.visualize:
@@ -224,11 +225,11 @@ class MultiLevelSegmenter:
                     # Save masks if requested
                     if self.save_masks:
                         save_masks(multilevel_masks[level], level_dir)
-                        # copy the source image from image path to output args.output_dir
+                        # first convert to png fomrat
                         saved_src_img_path = os.path.join(
                             image_output_dir, f"id {image_id}.png"
                         )
-                        shutil.copyfile(image_path, saved_src_img_path)
+                        Image.open(image_path).save(saved_src_img_path)
 
                     # Visualize masks if requested
                     if self.visualize:
