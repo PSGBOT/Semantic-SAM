@@ -17,9 +17,9 @@ def load_image_from_path(image_path):
         img = Image.open(image_path)
 
         # Convert to RGB if the image is in RGBA mode (has transparency)
-        if img.mode == 'RGBA':
+        # Ensure the image is in RGB format, so it always has 3 channels
+        if img.mode != 'RGB':
             img = img.convert('RGB')
-
         return img
     except Exception as e:
         print(f"Error loading image from {image_path}: {e}")
