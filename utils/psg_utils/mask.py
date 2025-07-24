@@ -275,6 +275,6 @@ def apply_mask(parent_masks: list, child_masks: list) -> list[list[torch.Tensor]
                 remaining_mask.sum() > parent_masks[i].sum() * 0.05
             ):  # At least 5% of parent mask
                 valid_children.append(remaining_mask)
-                print("append remaining mask")
+                # print("append remaining mask")
         res.append(valid_children)
     return res
