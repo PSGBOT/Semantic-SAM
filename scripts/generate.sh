@@ -1,3 +1,3 @@
 #!/bin/bash
 
-./scripts/pipeline.sh indoor
+./scripts/pipeline.sh test_ssam
