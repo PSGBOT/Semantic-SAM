@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import os
 import torch
+import cv2
+
 
 def visualize_masks(anns, image_ori=None, figsize=(15, 10), save_path=None):
     """
@@ -22,7 +24,7 @@ def visualize_masks(anns, image_ori=None, figsize=(15, 10), save_path=None):
         return
 
     # Sort by area for better visualization
-    sorted_anns = sorted(anns, key=(lambda x: x['area']), reverse=True)
+    sorted_anns = sorted(anns, key=(lambda x: x["area"]), reverse=True)
 
     # Calculate grid dimensions
     n_masks = len(sorted_anns)
@@ -40,24 +42,24 @@ def visualize_masks(anns, image_ori=None, figsize=(15, 10), save_path=None):
         if i >= len(axes):
             break
 
-        m = ann['segmentation']
+        m = ann["segmentation"]
 
         # Display mask in black and white
-        axes[i].imshow(m, cmap='gray')
+        axes[i].imshow(m, cmap="gray")
 
         # Add area information
         area_text = f"Area: {ann['area']:.0f}"
-        if 'predicted_iou' in ann:
+        if "predicted_iou" in ann:
             area_text += f"\nIoU: {ann['predicted_iou']:.2f}"
-        if 'stability_score' in ann:
+        if "stability_score" in ann:
             area_text += f"\nStability: {ann['stability_score']:.2f}"
 
-        axes[i].set_title(f"Mask {i+1}\n{area_text}")
-        axes[i].axis('off')
+        axes[i].set_title(f"Mask {i + 1}\n{area_text}")
+        axes[i].axis("off")
 
     # Hide unused subplots
     for i in range(n_masks, len(axes)):
-        axes[i].axis('off')
+        axes[i].axis("off")
 
     plt.tight_layout()
 
@@ -84,14 +86,15 @@ def save_masks(masks, output_dir):
 
     for i, mask in enumerate(masks):
         # Convert boolean mask to uint8 (0 and 255)
-        mask_img = mask['segmentation'].astype(np.uint8) * 255
+        mask_img = mask["segmentation"].astype(np.uint8) * 255
 
         # Create a PIL image and save
         mask_pil = Image.fromarray(mask_img)
-        mask_path = os.path.join(output_dir, f"mask_{i+1}.png")
+        mask_path = os.path.join(output_dir, f"mask_{i + 1}.png")
         mask_pil.save(mask_path)
 
-def load_masks(dir):
+
+def load_masks(dir) -> list[torch.Tensor]:
     """
     load the bit_masks(png) under dir as torch.Tensor
 
@@ -105,7 +108,7 @@ def load_masks(dir):
         raise FileNotFoundError(f"Directory {dir} does not exist")
 
     masks = []
-    mask_files = [f for f in os.listdir(dir) if f.endswith('.png')]
+    mask_files = [f for f in os.listdir(dir) if f.endswith(".png")]
 
     for mask_file in sorted(mask_files):
         mask_path = os.path.join(dir, mask_file)
@@ -114,7 +117,8 @@ def load_masks(dir):
 
     return masks
 
-def load_mask(mask_path):
+
+def load_mask(mask_path) -> torch.Tensor:
     """
     load the bit_mask(png) as torch.Tensor
 
@@ -141,7 +145,6 @@ def load_mask(mask_path):
     return mask_tensor
 
 
-
 @torch.no_grad()
 def iou(mask1, mask2):
     intersection = (mask1 * mask2).sum()
@@ -150,13 +153,15 @@ def iou(mask1, mask2):
     union = torch.logical_or(mask1, mask2).to(torch.int).sum()
     return intersection / union
 
+
 @torch.no_grad()
-def contain(mask1 : torch.Tensor, mask2 : torch.Tensor):
+def contain(mask1: torch.Tensor, mask2: torch.Tensor):
     """
     if ->1, mask1 contains mask2
     """
     intersection = (mask1 * mask2).sum()
     return intersection / mask2.sum()
+
 
 @torch.no_grad()
 def contain_matrix(masks):
@@ -170,9 +175,10 @@ def contain_matrix(masks):
                 contain_matrix[i, j] = contain(masks[i], masks[j])
     return contain_matrix
 
+
 @torch.no_grad()
-def intersect(mask1 : torch.Tensor, mask2 : torch.Tensor):
-    intersection_mask = (mask1 * mask2)
+def intersect(mask1: torch.Tensor, mask2: torch.Tensor):
+    intersection_mask = mask1 * mask2
     return intersection_mask
 
 
@@ -184,9 +190,11 @@ def discard_subseg(seg_res):
         seg_res: List of segmentation results(dict), bitmask is stored as seg_res[index]["segmentation"]
         contain_m: Containment matrix
     """
-    mask_tensors = [torch.tensor(mask['segmentation'], dtype=torch.int).cuda() for mask in seg_res]
+    mask_tensors = [
+        torch.tensor(mask["segmentation"], dtype=torch.int).cuda() for mask in seg_res
+    ]
     matrix = contain_matrix(mask_tensors)
-    #print(matrix)
+    # print(matrix)
     for i in range(len(seg_res)):
         for j in range(len(seg_res)):
             if i == j:
@@ -194,14 +202,15 @@ def discard_subseg(seg_res):
             else:
                 if matrix[i, j] > 0.9 and matrix[j, i] < matrix[i, j]:
                     seg_res[j] = None
-                    #print(f"Discard submask {j}, because it is submask of {i}")
+                    # print(f"Discard submask {j}, because it is submask of {i}")
     # discard None in list
     res = [mask for mask in seg_res if mask is not None]
     return res
 
+
 def discard_submask(masks):
     matrix = contain_matrix(masks)
-    #print(matrix)
+    # print(matrix)
     for i in range(len(masks)):
         for j in range(len(masks)):
             if i == j:
@@ -209,14 +218,14 @@ def discard_submask(masks):
             else:
                 if matrix[i, j] > 0.9 and matrix[j, i] < matrix[i, j]:
                     masks[j] = None
-                    #print(f"Discard submask {j}, because it is submask of {i}")
+                    # print(f"Discard submask {j}, because it is submask of {i}")
     # discard None in list
     res = [mask for mask in masks if mask is not None]
     return res
 
 
 @torch.no_grad()
-def apply_mask(parent_masks : list, child_masks : list):
+def apply_mask(parent_masks: list, child_masks: list) -> list[list[torch.Tensor]]:
     """
     Given the parent-level masks and child-level masks, generate the corresponding child-level masks for each parent-level mask
     Args:
@@ -234,5 +243,38 @@ def apply_mask(parent_masks : list, child_masks : list):
             valid = contain(parent_masks[i], child_masks[j])
             if valid > 0.3:
                 valid_children.append(parent_masks[i] * child_masks[j])
+        # Calculate the remaining part of parent mask not covered by any child
+        if len(valid_children) > 1:
+            # Union of all valid children
+            union_children = valid_children[0]
+            for child in valid_children[1:]:
+                union_children = torch.logical_or(union_children, child).to(torch.int)
+
+            # Dilate the union_children to avoid small fragmented remaining masks
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            union_dilated = cv2.dilate(
+                union_children.cpu().numpy().astype(np.uint8), kernel, iterations=2
+            )
+            union_dilated = torch.tensor(union_dilated, dtype=torch.int).cuda()
+
+            # Calculate remaining part using dilated mask to reduce fragmentation
+            remaining_mask = parent_masks[i] - union_dilated
+            remaining_mask = torch.clamp(remaining_mask, min=0)
+
+            # Erode the remaining_mask back to recover legitimate area while avoiding small fragments
+            erode_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            remaining_eroded = cv2.erode(
+                remaining_mask.cpu().numpy().astype(np.uint8),
+                erode_kernel,
+                iterations=2,
+            )
+            remaining_mask = torch.tensor(remaining_eroded, dtype=torch.int).cuda()
+
+            # Only add remaining mask if it's substantial enough (avoid small fragments)
+            if (
+                remaining_mask.sum() > parent_masks[i].sum() * 0.05
+            ):  # At least 5% of parent mask
+                valid_children.append(remaining_mask)
+                print("append remaining mask")
         res.append(valid_children)
     return res
